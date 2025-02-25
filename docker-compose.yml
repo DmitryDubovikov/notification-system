@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  rabbitmq:
+    image: rabbitmq:4-management
+    container_name: notification-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+    healthcheck:
+      test: ["CMD", "rabbitmqctl", "status"]
+      interval: 2s
+      timeout: 2s
+      retries: 3
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: notification-api
+    ports:
+      - "8000:8000"
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_USER=guest
+      - RABBITMQ_PASSWORD=guest
+      - RABBITMQ_QUEUE=notifications
+    volumes:
+      - ./api/app:/app/app
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: on-failure
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+  worker:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    container_name: notification-worker
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_USER=guest
+      - RABBITMQ_PASSWORD=guest
+      - RABBITMQ_QUEUE=notifications
+      - SMTP_HOST=smtp.gmail.com
+      - SMTP_PORT=587
+#      - SMTP_USER=email@gmail.com
+#      - SMTP_PASSWORD=app-password
+      - EMAIL_SENDER=notifications@example.com
+    volumes:
+      - ./worker/app:/app/app
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: on-failure
+    command: ["python", "-m", "app.worker"]
+
+volumes:
+  rabbitmq_data:
